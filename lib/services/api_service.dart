@@ -1,0 +1,253 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
+
+import '../config.dart';
+import '../models/models.dart';
+
+/// Thin client over the EasyOffice mobile_api. Handles JWT storage, attaching
+/// the Authorization header, and transparently refreshing an expired access
+/// token once before giving up.
+class ApiService {
+  ApiService._();
+  static final ApiService instance = ApiService._();
+
+  static const _kAccess = 'eo_access';
+  static const _kRefresh = 'eo_refresh';
+
+  String? _access;
+  String? _refresh;
+
+  String? get accessToken => _access;
+  bool get isLoggedIn => _access != null;
+
+  // ── Token lifecycle ──────────────────────────────────────────────────────
+
+  Future<void> loadTokens() async {
+    final prefs = await SharedPreferences.getInstance();
+    _access = prefs.getString(_kAccess);
+    _refresh = prefs.getString(_kRefresh);
+  }
+
+  Future<void> _persist() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_access != null) await prefs.setString(_kAccess, _access!);
+    if (_refresh != null) await prefs.setString(_kRefresh, _refresh!);
+  }
+
+  Future<void> clearTokens() async {
+    _access = null;
+    _refresh = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kAccess);
+    await prefs.remove(_kRefresh);
+  }
+
+  Map<String, String> _headers({bool json = true}) => {
+        if (json) 'Content-Type': 'application/json',
+        if (_access != null) 'Authorization': 'Bearer $_access',
+      };
+
+  // ── Core request with one-shot refresh-and-retry on 401 ───────────────────
+
+  Future<http.Response> _send(
+    String method,
+    String path, {
+    Object? body,
+    bool retry = true,
+  }) async {
+    final uri = AppConfig.api(path);
+    Future<http.Response> doIt() {
+      final h = _headers();
+      switch (method) {
+        case 'GET':
+          return http.get(uri, headers: h);
+        case 'POST':
+          return http.post(uri, headers: h, body: body == null ? null : jsonEncode(body));
+        case 'PATCH':
+          return http.patch(uri, headers: h, body: body == null ? null : jsonEncode(body));
+        case 'DELETE':
+          return http.delete(uri, headers: h, body: body == null ? null : jsonEncode(body));
+        default:
+          throw ArgumentError('Unsupported method $method');
+      }
+    }
+
+    var res = await doIt();
+    if (res.statusCode == 401 && retry && _refresh != null) {
+      final refreshed = await refreshAccess();
+      if (refreshed) res = await doIt();
+    }
+    return res;
+  }
+
+  Map<String, dynamic> _decode(http.Response r) {
+    if (r.body.isEmpty) return {};
+    final d = jsonDecode(r.body);
+    return d is Map<String, dynamic> ? d : {'_list': d};
+  }
+
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
+  Future<bool> login(String username, String password) async {
+    final res = await http.post(
+      AppConfig.api('auth/login/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'username': username, 'password': password}),
+    );
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      // SimpleJWT-style tokens; be tolerant about key names.
+      _access = d['access'] ?? d['access_token'] ?? d['token'];
+      _refresh = d['refresh'] ?? d['refresh_token'];
+      await _persist();
+      return _access != null;
+    }
+    return false;
+  }
+
+  Future<bool> refreshAccess() async {
+    if (_refresh == null) return false;
+    final res = await http.post(
+      AppConfig.api('auth/refresh/'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'refresh': _refresh}),
+    );
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      _access = d['access'] ?? _access;
+      if (d['refresh'] != null) _refresh = d['refresh'];
+      await _persist();
+      return true;
+    }
+    return false;
+  }
+
+  Future<void> logout() async {
+    try {
+      await _send('POST', 'auth/logout/', body: {'refresh': _refresh}, retry: false);
+    } catch (_) {}
+    await clearTokens();
+  }
+
+  Future<UserMini?> me() async {
+    final res = await _send('GET', 'auth/me/');
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      final user = d['user'] ?? d;
+      return UserMini.fromJson(user);
+    }
+    return null;
+  }
+
+  // ── Rooms ──────────────────────────────────────────────────────────────────
+
+  Future<List<ChatRoom>> rooms() async {
+    final res = await _send('GET', 'rooms/');
+    if (res.statusCode == 200) {
+      final d = jsonDecode(res.body);
+      final list = d is List ? d : (d['rooms'] ?? d['results'] ?? d['_list'] ?? []);
+      return (list as List).map((e) => ChatRoom.fromJson(e)).toList();
+    }
+    return [];
+  }
+
+  Future<ChatRoom?> directRoom(String userId) async {
+    final res = await _send('POST', 'rooms/direct/', body: {'user_id': userId});
+    if (res.statusCode == 200 || res.statusCode == 201) {
+      final d = _decode(res);
+      return ChatRoom.fromJson(d['room'] ?? d);
+    }
+    return null;
+  }
+
+  Future<List<ChatMessage>> messages(String roomId, {String? beforeId}) async {
+    final q = beforeId != null ? '?before=$beforeId' : '';
+    final res = await _send('GET', 'rooms/$roomId/messages/$q');
+    if (res.statusCode == 200) {
+      final d = jsonDecode(res.body);
+      final list = d is List ? d : (d['messages'] ?? d['results'] ?? d['_list'] ?? []);
+      return (list as List).map((e) => ChatMessage.fromJson(e)).toList();
+    }
+    return [];
+  }
+
+  // ── Messages ────────────────────────────────────────────────────────────────
+
+  Future<bool> deleteMessage(String messageId) async {
+    final res = await _send('DELETE', 'messages/$messageId/');
+    return res.statusCode == 200 || res.statusCode == 204;
+  }
+
+  Future<List<ReactionSummary>> toggleReaction(String messageId, String emoji) async {
+    final res = await _send('POST', 'messages/$messageId/react/', body: {'emoji': emoji});
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      final list = d['reactions_summary'] ?? d['reactions'] ?? [];
+      return (list as List).map((e) => ReactionSummary.fromJson(e)).toList();
+    }
+    return [];
+  }
+
+  // ── Polls ──────────────────────────────────────────────────────────────────
+
+  Future<bool> createPoll(String roomId, String question, List<String> options,
+      {bool allowMultiple = false, bool anonymous = false}) async {
+    final res = await _send('POST', 'rooms/$roomId/polls/', body: {
+      'question': question,
+      'options': options,
+      'allow_multiple': allowMultiple,
+      'is_anonymous': anonymous,
+    });
+    return res.statusCode == 200 || res.statusCode == 201;
+  }
+
+  Future<Poll?> votePoll(String pollId, List<String> optionIds) async {
+    final res = await _send('POST', 'polls/$pollId/vote/', body: {'options': optionIds});
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      return Poll.fromJson(d['poll'] ?? d);
+    }
+    return null;
+  }
+
+  // ── Presence ─────────────────────────────────────────────────────────────────
+
+  Future<void> heartbeat() async {
+    try {
+      await _send('POST', 'presence/heartbeat/', body: {});
+    } catch (_) {}
+  }
+
+  Future<bool> isOnline(String userId) async {
+    final res = await _send('GET', 'presence/$userId/');
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      return d['online'] ?? d['is_online'] ?? false;
+    }
+    return false;
+  }
+
+  // ── Users ─────────────────────────────────────────────────────────────────────
+
+  Future<List<UserMini>> searchUsers(String q) async {
+    final res = await _send('GET', 'users/search/?q=${Uri.encodeQueryComponent(q)}');
+    if (res.statusCode == 200) {
+      final d = jsonDecode(res.body);
+      final list = d is List ? d : (d['results'] ?? d['users'] ?? d['_list'] ?? []);
+      return (list as List).map((e) => UserMini.fromJson(e)).toList();
+    }
+    return [];
+  }
+
+  // ── Device push token ───────────────────────────────────────────────────────
+
+  Future<void> registerDeviceToken(String token, {String platform = 'android'}) async {
+    try {
+      await _send('POST', 'device-tokens/', body: {'platform': platform, 'token': token});
+    } catch (e) {
+      if (kDebugMode) debugPrint('device token register failed: $e');
+    }
+  }
+}
