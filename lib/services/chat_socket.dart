@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:web_socket_channel/status.dart' as ws_status;
+import 'package:web_socket_channel/io.dart';
 
 import '../config.dart';
 
@@ -39,7 +40,10 @@ class ChatSocket {
     if (_disposed) return;
     final uri = AppConfig.wsRoom(roomId, accessToken);
     try {
-      _channel = WebSocketChannel.connect(uri);
+      _channel = IOWebSocketChannel.connect(
+        uri,
+        headers: {'Origin': AppConfig.host},
+      );
       _connState.add(true);
       _backoffSeconds = 1;
       _sub = _channel!.stream.listen(
