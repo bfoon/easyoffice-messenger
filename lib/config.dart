@@ -13,7 +13,7 @@ class AppConfig {
   /// Path prefix where `apps.mobile_api.urls` is included in the root urls.py.
   /// If unsure, check your project's main urls.py for a line like:
   ///   path('api/mobile/', include('apps.mobile_api.urls'))
-  static const String apiPrefix = '/api/mobile';
+  static const String apiPrefix = '/api/mobile/v1';
 
   /// Path where the chat WebSocket is routed (Django Channels routing.py).
   /// The ChatConsumer expects a `room_id` kwarg, so the URL pattern is

@@ -90,11 +90,16 @@ class ApiService {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
-  Future<bool> login(String username, String password) async {
+  Future<bool> login(String emailOrUsername, String password) async {
     final res = await http.post(
       AppConfig.api('auth/login/'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'username': username, 'password': password}),
+      // Send under both keys so the backend can use whichever it expects.
+      body: jsonEncode({
+        'email': emailOrUsername,
+        'username': emailOrUsername,
+        'password': password,
+      }),
     );
     if (res.statusCode == 200) {
       final d = _decode(res);

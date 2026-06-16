@@ -30,6 +30,7 @@ class _ChatScreenState extends State<ChatScreen> {
   // typing indicator
   final Map<String, DateTime> _typers = {};
   Timer? _typingClock;
+  Timer? _pollTimer;
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
 
   String? _replyingToId;
@@ -53,6 +54,23 @@ class _ChatScreenState extends State<ChatScreen> {
     });
     _scrollToBottom(animated: false);
     _openSocket();
+    _startPolling();
+  }
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _pollMessages());
+  }
+
+  Future<void> _pollMessages() async {
+    if (!mounted) return;
+    final latest = await _api.messages(widget.room.id);
+    if (!mounted || latest.isEmpty) return;
+    final existingIds = _messages.map((m) => m.id).toSet();
+    final incoming = latest.where((m) => !existingIds.contains(m.id)).toList();
+    if (incoming.isEmpty) return;
+    setState(() => _messages.addAll(incoming));
+    _scrollToBottom();
   }
 
   void _openSocket() {
@@ -144,6 +162,9 @@ class _ChatScreenState extends State<ChatScreen> {
       _replyingToId = null;
       _replyingToText = '';
     });
+    // Pull our own message back quickly via the REST poll so it shows even if
+    // the socket echo is delayed.
+    Future.delayed(const Duration(milliseconds: 600), _pollMessages);
   }
 
   Future<void> _toggleReaction(ChatMessage m, String emoji) async {
@@ -240,6 +261,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   void dispose() {
+    _pollTimer?.cancel();
     _typingClock?.cancel();
     _socket?.dispose();
     _composer.dispose();
