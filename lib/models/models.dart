@@ -142,9 +142,6 @@ class ChatMessage {
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> j) {
-    // The WebSocket payload (_serialize_chat_message) and the REST serializer
-    // both feed this. We read defensively because the two paths can differ in
-    // a couple of optional keys.
     DateTime? created;
     final raw = j['created_at'];
     if (raw is String && raw.isNotEmpty) {
@@ -203,6 +200,7 @@ class ChatRoom {
   final int memberCount;
   final LastMessage? lastMessage;
   final DateTime? updatedAt;
+  final List<UserMini> members;
 
   ChatRoom({
     required this.id,
@@ -218,6 +216,7 @@ class ChatRoom {
     required this.memberCount,
     required this.lastMessage,
     required this.updatedAt,
+    required this.members,
   });
 
   factory ChatRoom.fromJson(Map<String, dynamic> j) => ChatRoom(
@@ -238,6 +237,9 @@ class ChatRoom {
             ? LastMessage.fromJson(j['last_message'])
             : null,
         updatedAt: DateTime.tryParse('${j['updated_at'] ?? ''}'),
+        members: ((j['members'] ?? []) as List)
+            .map((e) => UserMini.fromJson(e))
+            .toList(),
       );
 
   bool get isDirect => roomType == 'direct';

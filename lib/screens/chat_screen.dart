@@ -76,7 +76,6 @@ class _ChatScreenState extends State<ChatScreen> {
     final existingById = {for (final m in _messages) m.id: m};
     final incoming = latest.where((m) => !existingById.containsKey(m.id)).toList();
 
-    // Detect reaction changes on messages already on screen.
     var reactionsChanged = false;
     for (final fresh in latest) {
       final current = existingById[fresh.id];
@@ -195,6 +194,53 @@ class _ChatScreenState extends State<ChatScreen> {
     Future.delayed(const Duration(milliseconds: 600), _pollMessages);
   }
 
+  // ── Members ───────────────────────────────────────────────────────────────
+
+  void _showMembers() {
+    final members = widget.room.members;
+    if (members.isEmpty) {
+      _toast('Member list not available.');
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: EoColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  const Icon(Icons.group_rounded, color: EoColors.deepTeal),
+                  const SizedBox(width: 10),
+                  Text('${members.length} members', style: EoTheme.display(16, w: FontWeight.w700)),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: members.length,
+                itemBuilder: (_, i) {
+                  final u = members[i];
+                  return ListTile(
+                    leading: EoAvatar(initials: u.initials, imageUrl: u.avatarUrl, size: 42),
+                    title: Text(u.fullName),
+                    subtitle: Text('@${u.username}', style: const TextStyle(color: EoColors.inkSoft)),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // ── Attachments ───────────────────────────────────────────────────────────
 
   void _showAttachSheet() {
@@ -277,7 +323,6 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _toggleReaction(ChatMessage m, String emoji) async {
-    // Optimistic: update the UI immediately, before the server responds.
     final idx = _messages.indexWhere((x) => x.id == m.id);
     if (idx == -1) return;
 
@@ -300,7 +345,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
     setState(() => _messages[idx] = _withReactions(_messages[idx], current));
 
-    // Sync with the server and reconcile with the authoritative result.
     final updated = await _api.toggleReaction(m.id, emoji);
     if (!mounted) return;
     final i2 = _messages.indexWhere((x) => x.id == m.id);
@@ -408,23 +452,26 @@ class _ChatScreenState extends State<ChatScreen> {
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
-        title: Row(
-          children: [
-            EoAvatar(initials: widget.room.initials, imageUrl: widget.room.avatarUrl, size: 40, online: _connected && widget.room.isDirect),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(widget.room.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: EoTheme.display(17, w: FontWeight.w700)),
-                  Text(
-                    _connected ? (widget.room.isDirect ? 'Online' : '${widget.room.memberCount} members') : 'Connecting…',
-                    style: TextStyle(fontSize: 12, color: _connected ? EoColors.signalTeal : EoColors.inkSoft),
-                  ),
-                ],
+        title: GestureDetector(
+          onTap: _showMembers,
+          child: Row(
+            children: [
+              EoAvatar(initials: widget.room.initials, imageUrl: widget.room.avatarUrl, size: 40, online: _connected && widget.room.isDirect),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(widget.room.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: EoTheme.display(17, w: FontWeight.w700)),
+                    Text(
+                      _connected ? (widget.room.isDirect ? 'Online' : '${widget.room.memberCount} members • tap to view') : 'Connecting…',
+                      style: TextStyle(fontSize: 12, color: _connected ? EoColors.signalTeal : EoColors.inkSoft),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         actions: [
           if (!widget.room.isReadonly)
