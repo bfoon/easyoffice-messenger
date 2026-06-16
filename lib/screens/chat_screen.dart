@@ -72,13 +72,41 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!mounted) return;
     final latest = await _api.messages(widget.room.id);
     if (!mounted || latest.isEmpty) return;
-    final existingIds = _messages.map((m) => m.id).toSet();
-    final incoming = latest.where((m) => !existingIds.contains(m.id)).toList();
-    if (incoming.isEmpty) return;
+
+    final existingById = {for (final m in _messages) m.id: m};
+    final incoming = latest.where((m) => !existingById.containsKey(m.id)).toList();
+
+    // Detect reaction changes on messages already on screen.
+    var reactionsChanged = false;
+    for (final fresh in latest) {
+      final current = existingById[fresh.id];
+      if (current == null) continue;
+      if (!_sameReactions(current.reactions, fresh.reactions)) {
+        final idx = _messages.indexWhere((m) => m.id == fresh.id);
+        if (idx != -1) {
+          _messages[idx] = _withReactions(_messages[idx], fresh.reactions);
+          reactionsChanged = true;
+        }
+      }
+    }
+
     final hasFromOthers = incoming.any((m) => !m.isMine);
-    setState(() => _messages.addAll(incoming));
+    if (incoming.isNotEmpty || reactionsChanged) {
+      setState(() => _messages.addAll(incoming));
+    }
     if (hasFromOthers) SoundService.instance.playReceived();
-    _scrollToBottom();
+    if (incoming.isNotEmpty) _scrollToBottom();
+  }
+
+  bool _sameReactions(List<ReactionSummary> a, List<ReactionSummary> b) {
+    if (a.length != b.length) return false;
+    final am = {for (final r in a) r.emoji: r.count};
+    final bm = {for (final r in b) r.emoji: r.count};
+    if (am.length != bm.length) return false;
+    for (final e in am.entries) {
+      if (bm[e.key] != e.value) return false;
+    }
+    return true;
   }
 
   void _openSocket() {
@@ -249,10 +277,35 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _toggleReaction(ChatMessage m, String emoji) async {
-    final updated = await _api.toggleReaction(m.id, emoji);
+    // Optimistic: update the UI immediately, before the server responds.
     final idx = _messages.indexWhere((x) => x.id == m.id);
-    if (idx != -1 && mounted) {
-      setState(() => _messages[idx] = _withReactions(_messages[idx], updated));
+    if (idx == -1) return;
+
+    final current = List<ReactionSummary>.from(_messages[idx].reactions);
+    final existing = current.indexWhere((r) => r.emoji == emoji);
+    if (existing != -1) {
+      final r = current[existing];
+      if (r.mine) {
+        final newCount = r.count - 1;
+        if (newCount <= 0) {
+          current.removeAt(existing);
+        } else {
+          current[existing] = ReactionSummary(emoji: emoji, count: newCount, mine: false);
+        }
+      } else {
+        current[existing] = ReactionSummary(emoji: emoji, count: r.count + 1, mine: true);
+      }
+    } else {
+      current.add(ReactionSummary(emoji: emoji, count: 1, mine: true));
+    }
+    setState(() => _messages[idx] = _withReactions(_messages[idx], current));
+
+    // Sync with the server and reconcile with the authoritative result.
+    final updated = await _api.toggleReaction(m.id, emoji);
+    if (!mounted) return;
+    final i2 = _messages.indexWhere((x) => x.id == m.id);
+    if (i2 != -1 && updated.isNotEmpty) {
+      setState(() => _messages[i2] = _withReactions(_messages[i2], updated));
     }
   }
 

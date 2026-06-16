@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
-
 import '../models/models.dart';
 import '../theme/eo_theme.dart';
 
@@ -87,12 +87,12 @@ class MessageBubble extends StatelessWidget {
                   else if (message.messageType == 'file' && message.fileUrl.isNotEmpty)
                     _fileBlock(context, textColor)
                   else
-                    Text(message.content, style: TextStyle(color: textColor, fontSize: 15.5, height: 1.32)),
+                    _linkedText(message.content, textColor),
                   // Caption under an image/file, if any.
                   if ((message.messageType == 'image' || message.messageType == 'file') &&
                       message.content.isNotEmpty) ...[
                     const SizedBox(height: 6),
-                    Text(message.content, style: TextStyle(color: textColor, fontSize: 14.5, height: 1.3)),
+                    _linkedText(message.content, textColor, size: 14.5),
                   ],
                   const SizedBox(height: 4),
                   Row(
@@ -122,6 +122,27 @@ class MessageBubble extends StatelessWidget {
           if (message.reactions.isNotEmpty) _reactionRow(),
         ],
       ),
+    );
+  }
+
+  /// Renders text with clickable links. URLs open in the browser.
+  Widget _linkedText(String text, Color textColor, {double size = 15.5}) {
+    return Linkify(
+      text: text,
+      onOpen: (link) async {
+        final uri = Uri.tryParse(link.url);
+        if (uri != null && await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      },
+      style: TextStyle(color: textColor, fontSize: size, height: 1.32),
+      linkStyle: TextStyle(
+        color: textColor == EoColors.onTeal ? Colors.white : EoColors.deepTeal,
+        decoration: TextDecoration.underline,
+        fontSize: size,
+        height: 1.32,
+      ),
+      options: const LinkifyOptions(humanize: false),
     );
   }
 

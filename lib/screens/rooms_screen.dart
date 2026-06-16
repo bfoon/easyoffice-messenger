@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -22,11 +23,21 @@ class _RoomsScreenState extends State<RoomsScreen> {
   List<ChatRoom> _rooms = [];
   bool _loading = true;
   String _query = '';
+  int _tab = 0; // 0 All, 1 Direct, 2 Groups
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Live-refresh unread counts while the list is open.
+    _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) => _silentRefresh());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -39,10 +50,28 @@ class _RoomsScreenState extends State<RoomsScreen> {
     });
   }
 
+  Future<void> _silentRefresh() async {
+    final rooms = await _api.rooms();
+    if (!mounted) return;
+    setState(() => _rooms = rooms);
+  }
+
+  int get _totalUnread => _rooms.fold(0, (sum, r) => sum + r.unread);
+
   List<ChatRoom> get _filtered {
-    if (_query.isEmpty) return _rooms;
-    final q = _query.toLowerCase();
-    return _rooms.where((r) => r.title.toLowerCase().contains(q)).toList();
+    var list = _rooms;
+    // Tab filter.
+    if (_tab == 1) {
+      list = list.where((r) => r.isDirect).toList();
+    } else if (_tab == 2) {
+      list = list.where((r) => !r.isDirect).toList();
+    }
+    // Search filter.
+    if (_query.isNotEmpty) {
+      final q = _query.toLowerCase();
+      list = list.where((r) => r.title.toLowerCase().contains(q)).toList();
+    }
+    return list;
   }
 
   @override
@@ -50,7 +79,23 @@ class _RoomsScreenState extends State<RoomsScreen> {
     final me = context.watch<AppState>().me;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Messages'),
+        title: Row(
+          children: [
+            const Text('Messages'),
+            if (_totalUnread > 0) ...[
+              const SizedBox(width: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                decoration: BoxDecoration(
+                  color: EoColors.coral,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text('$_totalUnread',
+                    style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
+              ),
+            ],
+          ],
+        ),
         actions: [
           PopupMenuButton<String>(
             icon: EoAvatar(initials: me?.initials ?? '?', imageUrl: me?.avatarUrl ?? '', size: 36),
@@ -87,7 +132,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: TextField(
                 onChanged: (v) => setState(() => _query = v),
                 decoration: const InputDecoration(
@@ -96,9 +141,47 @@ class _RoomsScreenState extends State<RoomsScreen> {
                 ),
               ),
             ),
+            _filterTabs(),
             Expanded(child: _body()),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _filterTabs() {
+    const labels = ['All', 'Direct', 'Groups'];
+    return Container(
+      height: 42,
+      margin: const EdgeInsets.only(bottom: 6),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: labels.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final selected = _tab == i;
+          return GestureDetector(
+            onTap: () => setState(() => _tab = i),
+            child: Container(
+              alignment: Alignment.center,
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              decoration: BoxDecoration(
+                color: selected ? EoColors.deepTeal : EoColors.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: selected ? EoColors.deepTeal : EoColors.divider),
+              ),
+              child: Text(
+                labels[i],
+                style: TextStyle(
+                  color: selected ? EoColors.onTeal : EoColors.inkSoft,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13.5,
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -116,7 +199,7 @@ class _RoomsScreenState extends State<RoomsScreen> {
           const SizedBox(height: 16),
           Center(
             child: Text(
-              _query.isEmpty ? 'No conversations yet.\nTap the pencil to start one.' : 'Nothing matches “$_query”.',
+              _query.isEmpty ? 'No conversations here yet.' : 'Nothing matches “$_query”.',
               textAlign: TextAlign.center,
               style: const TextStyle(color: EoColors.inkSoft, fontSize: 15),
             ),
