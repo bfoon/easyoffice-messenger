@@ -178,6 +178,29 @@ class ApiService {
     return [];
   }
 
+  // ── File upload ─────────────────────────────────────────────────────────────
+
+  /// Upload a picture or file to a room. Hits the server's
+  /// rooms/<room_id>/upload/ endpoint with a multipart body. The server
+  /// creates the ChatMessage and broadcasts it; the polling loop in the chat
+  /// screen will then display it.
+  Future<bool> uploadFile(String roomId, String filePath, {String caption = ''}) async {
+    final uri = AppConfig.api('rooms/$roomId/upload/');
+    final req = http.MultipartRequest('POST', uri);
+    if (_access != null) req.headers['Authorization'] = 'Bearer $_access';
+    req.fields['caption'] = caption;
+    req.files.add(await http.MultipartFile.fromPath('file', filePath));
+
+    final streamed = await req.send();
+    if (streamed.statusCode == 401 && _refresh != null) {
+      if (await refreshAccess()) {
+        // Retry once with the refreshed token.
+        return uploadFile(roomId, filePath, caption: caption);
+      }
+    }
+    return streamed.statusCode == 200 || streamed.statusCode == 201;
+  }
+
   // ── Messages ────────────────────────────────────────────────────────────────
 
   Future<bool> deleteMessage(String messageId) async {

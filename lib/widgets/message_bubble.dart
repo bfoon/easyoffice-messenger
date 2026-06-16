@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/models.dart';
 import '../theme/eo_theme.dart';
@@ -82,11 +83,17 @@ class MessageBubble extends StatelessWidget {
                   if (message.poll != null)
                     _pollBlock(message.poll!, textColor)
                   else if (message.messageType == 'image' && message.fileUrl.isNotEmpty)
-                    _imageBlock()
+                    _imageBlock(context)
                   else if (message.messageType == 'file' && message.fileUrl.isNotEmpty)
-                    _fileBlock(textColor)
+                    _fileBlock(context, textColor)
                   else
                     Text(message.content, style: TextStyle(color: textColor, fontSize: 15.5, height: 1.32)),
+                  // Caption under an image/file, if any.
+                  if ((message.messageType == 'image' || message.messageType == 'file') &&
+                      message.content.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(message.content, style: TextStyle(color: textColor, fontSize: 14.5, height: 1.3)),
+                  ],
                   const SizedBox(height: 4),
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -143,37 +150,99 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _imageBlock() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: Image.network(
-        message.fileUrl,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _fileBlock(EoColors.ink),
+  Widget _imageBlock(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _openImageViewer(context),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: Image.network(
+          message.fileUrl,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(
+              height: 160,
+              width: 200,
+              alignment: Alignment.center,
+              color: EoColors.sandDeep,
+              child: const CircularProgressIndicator(color: EoColors.deepTeal, strokeWidth: 2),
+            );
+          },
+          errorBuilder: (_, __, ___) => _fileBlock(context, EoColors.ink),
+        ),
       ),
     );
   }
 
-  Widget _fileBlock(Color textColor) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.insert_drive_file_outlined, color: textColor, size: 22),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(message.fileName.isEmpty ? 'Attachment' : message.fileName,
-                  maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
-              if (message.fileSize > 0)
-                Text(_size(message.fileSize), style: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 11)),
-            ],
+  void _openImageViewer(BuildContext context) {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          iconTheme: const IconThemeData(color: Colors.white),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.download_rounded, color: Colors.white),
+              tooltip: 'Open / download',
+              onPressed: () => _downloadFile(context),
+            ),
+          ],
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            minScale: 0.5,
+            maxScale: 4,
+            child: Image.network(message.fileUrl, fit: BoxFit.contain),
           ),
         ),
-      ],
+      ),
+    ));
+  }
+
+  Widget _fileBlock(BuildContext context, Color textColor) {
+    return GestureDetector(
+      onTap: () => _downloadFile(context),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.insert_drive_file_outlined, color: textColor, size: 22),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(message.fileName.isEmpty ? 'Attachment' : message.fileName,
+                    maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: textColor, fontWeight: FontWeight.w600)),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (message.fileSize > 0)
+                      Text(_size(message.fileSize), style: TextStyle(color: textColor.withValues(alpha: 0.6), fontSize: 11)),
+                    const SizedBox(width: 6),
+                    Icon(Icons.download_rounded, size: 13, color: textColor.withValues(alpha: 0.6)),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
+  }
+
+  Future<void> _downloadFile(BuildContext context) async {
+    final url = message.fileUrl;
+    if (url.isEmpty) return;
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the file.')),
+      );
+    }
   }
 
   Widget _pollBlock(Poll poll, Color textColor) {

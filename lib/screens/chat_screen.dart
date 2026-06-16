@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
 import '../services/api_service.dart';
@@ -27,6 +29,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final List<ChatMessage> _messages = [];
   bool _loading = true;
   bool _connected = false;
+  bool _uploading = false;
 
   // typing indicator
   final Map<String, DateTime> _typers = {};
@@ -37,6 +40,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String? _replyingToId;
   String _replyingToText = '';
+  String _myId = '';
 
   @override
   void initState() {
@@ -91,18 +95,15 @@ class _ChatScreenState extends State<ChatScreen> {
 
   void _onSocketEvent(Map<String, dynamic> data) {
     final type = data['type'] ?? '';
-    // Typing indicator from the consumer (chat_typing).
     if (type == 'chat_typing' || type == 'typing') {
       final id = '${data['sender_id'] ?? ''}';
       final name = '${data['sender_name'] ?? ''}';
-      // Ignore our own typing echo.
-      if (id.isNotEmpty && id != (_api.accessToken != null ? _myId : '')) {
+      if (id.isNotEmpty && id != _myId) {
         setState(() => _typers[id] = DateTime.now());
         _typerNames[id] = name;
       }
       return;
     }
-    // Reaction update.
     if (type == 'reaction') {
       final mid = '${data['message_id'] ?? ''}';
       final list = (data['reactions_summary'] ?? data['reactions'] ?? []) as List;
@@ -113,7 +114,6 @@ class _ChatScreenState extends State<ChatScreen> {
       }
       return;
     }
-    // Otherwise treat as a serialized chat message (the default broadcast).
     if (data.containsKey('id') &&
         (data.containsKey('content') || data.containsKey('message_type'))) {
       final msg = ChatMessage.fromJson(data);
@@ -126,9 +126,6 @@ class _ChatScreenState extends State<ChatScreen> {
       }
     }
   }
-
-  // Best-effort own id for typing-echo suppression (filled from first own msg).
-  String _myId = '';
 
   ChatMessage _withReactions(ChatMessage m, List<ReactionSummary> r) => ChatMessage(
         id: m.id, roomId: m.roomId, sender: m.sender, content: m.content,
@@ -168,6 +165,87 @@ class _ChatScreenState extends State<ChatScreen> {
       _replyingToText = '';
     });
     Future.delayed(const Duration(milliseconds: 600), _pollMessages);
+  }
+
+  // ── Attachments ───────────────────────────────────────────────────────────
+
+  void _showAttachSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: EoColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded, color: EoColors.deepTeal),
+              title: const Text('Photo from gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_rounded, color: EoColors.deepTeal),
+              title: const Text('Take a photo'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.attach_file_rounded, color: EoColors.deepTeal),
+              title: const Text('File / document'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickFile();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(source: source, imageQuality: 85);
+      if (picked != null) await _upload(picked.path);
+    } catch (e) {
+      _toast('Could not pick image.');
+    }
+  }
+
+  Future<void> _pickFile() async {
+    try {
+      final result = await FilePicker.platform.pickFiles();
+      final path = result?.files.single.path;
+      if (path != null) await _upload(path);
+    } catch (e) {
+      _toast('Could not pick file.');
+    }
+  }
+
+  Future<void> _upload(String path) async {
+    setState(() => _uploading = true);
+    final caption = _composer.text.trim();
+    final ok = await _api.uploadFile(widget.room.id, path, caption: caption);
+    if (!mounted) return;
+    setState(() => _uploading = false);
+    if (ok) {
+      _composer.clear();
+      SoundService.instance.playSent();
+      _pollMessages();
+    } else {
+      _toast('Upload failed.');
+    }
+  }
+
+  void _toast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _toggleReaction(ChatMessage m, String emoji) async {
@@ -313,6 +391,7 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(child: _messageList()),
+          if (_uploading) const LinearProgressIndicator(color: EoColors.signalTeal, minHeight: 2),
           _typingBar(),
           _composerBar(),
         ],
@@ -401,10 +480,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              padding: const EdgeInsets.fromLTRB(6, 8, 12, 8),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline_rounded, color: EoColors.deepTeal, size: 28),
+                    tooltip: 'Attach',
+                    onPressed: _uploading ? null : _showAttachSheet,
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _composer,
