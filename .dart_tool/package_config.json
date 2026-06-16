@@ -212,6 +212,12 @@
       "languageVersion": "3.0"
     },
     {
+      "name": "flutter_linkify",
+      "rootUri": "file:///C:/Users/MY%20PC/AppData/Local/Pub/Cache/hosted/pub.dev/flutter_linkify-6.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
       "name": "flutter_lints",
       "rootUri": "file:///C:/Users/MY%20PC/AppData/Local/Pub/Cache/hosted/pub.dev/flutter_lints-4.0.0",
       "packageUri": "lib/",
@@ -330,6 +336,12 @@
       "rootUri": "file:///C:/Users/MY%20PC/AppData/Local/Pub/Cache/hosted/pub.dev/json_annotation-4.12.0",
       "packageUri": "lib/",
       "languageVersion": "3.9"
+    },
+    {
+      "name": "linkify",
+      "rootUri": "file:///C:/Users/MY%20PC/AppData/Local/Pub/Cache/hosted/pub.dev/linkify-5.0.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.14"
     },
     {
       "name": "lints",
