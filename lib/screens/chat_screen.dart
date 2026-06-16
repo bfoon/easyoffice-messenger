@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/chat_socket.dart';
+import '../services/sound_service.dart';
 import '../theme/eo_theme.dart';
 import '../widgets/eo_avatar.dart';
 import '../widgets/message_bubble.dart';
@@ -29,6 +30,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // typing indicator
   final Map<String, DateTime> _typers = {};
+  final Map<String, String> _typerNames = {};
   Timer? _typingClock;
   Timer? _pollTimer;
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
@@ -69,7 +71,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final existingIds = _messages.map((m) => m.id).toSet();
     final incoming = latest.where((m) => !existingIds.contains(m.id)).toList();
     if (incoming.isEmpty) return;
+    final hasFromOthers = incoming.any((m) => !m.isMine);
     setState(() => _messages.addAll(incoming));
+    if (hasFromOthers) SoundService.instance.playReceived();
     _scrollToBottom();
   }
 
@@ -91,7 +95,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (type == 'chat_typing' || type == 'typing') {
       final id = '${data['sender_id'] ?? ''}';
       final name = '${data['sender_name'] ?? ''}';
-      if (id.isNotEmpty) {
+      // Ignore our own typing echo.
+      if (id.isNotEmpty && id != (_api.accessToken != null ? _myId : '')) {
         setState(() => _typers[id] = DateTime.now());
         _typerNames[id] = name;
       }
@@ -109,22 +114,21 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     // Otherwise treat as a serialized chat message (the default broadcast).
-    // A real message payload always carries an id plus either content or a
-    // message_type field.
     if (data.containsKey('id') &&
         (data.containsKey('content') || data.containsKey('message_type'))) {
       final msg = ChatMessage.fromJson(data);
       final exists = _messages.any((m) => m.id == msg.id);
       if (!exists) {
         setState(() => _messages.add(msg));
-        // clear the sender's typing dot when their message lands
         if (msg.sender != null) _typers.remove(msg.sender!.id);
+        if (!msg.isMine) SoundService.instance.playReceived();
         _scrollToBottom();
       }
     }
   }
 
-  final Map<String, String> _typerNames = {};
+  // Best-effort own id for typing-echo suppression (filled from first own msg).
+  String _myId = '';
 
   ChatMessage _withReactions(ChatMessage m, List<ReactionSummary> r) => ChatMessage(
         id: m.id, roomId: m.roomId, sender: m.sender, content: m.content,
@@ -157,13 +161,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final text = _composer.text.trim();
     if (text.isEmpty) return;
     _socket?.sendMessage(text, replyToId: _replyingToId);
+    SoundService.instance.playSent();
     _composer.clear();
     setState(() {
       _replyingToId = null;
       _replyingToText = '';
     });
-    // Pull our own message back quickly via the REST poll so it shows even if
-    // the socket echo is delayed.
     Future.delayed(const Duration(milliseconds: 600), _pollMessages);
   }
 

@@ -19,5 +19,8 @@ dependencies:
   vibration: ^2.0.0
 dev_dependencies:
   flutter_lints: ^4.0.0
+
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sounds/  
