@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-
 import '../models/models.dart';
 import 'api_service.dart';
+import 'local_db.dart';
 
 enum AuthStatus { unknown, loggedOut, loggedIn }
 
@@ -10,7 +10,6 @@ enum AuthStatus { unknown, loggedOut, loggedIn }
 /// that keeps the user marked online while the app is in the foreground.
 class AppState extends ChangeNotifier {
   final _api = ApiService.instance;
-
   AuthStatus status = AuthStatus.unknown;
   UserMini? me;
   Timer? _heartbeat;
@@ -24,7 +23,6 @@ class AppState extends ChangeNotifier {
         status = AuthStatus.loggedIn;
         _startHeartbeat();
       } else {
-        // token invalid / refresh failed
         await _api.clearTokens();
         status = AuthStatus.loggedOut;
       }
@@ -46,6 +44,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> logout() async {
     _heartbeat?.cancel();
+    await LocalDb.instance.clearAll();
     await _api.logout();
     me = null;
     status = AuthStatus.loggedOut;

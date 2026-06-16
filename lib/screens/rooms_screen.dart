@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/app_state.dart';
+import '../services/local_db.dart';
 import '../theme/eo_theme.dart';
 import '../widgets/eo_avatar.dart';
 import 'chat_screen.dart';
@@ -30,7 +31,6 @@ class _RoomsScreenState extends State<RoomsScreen> {
   void initState() {
     super.initState();
     _load();
-    // Live-refresh unread counts while the list is open.
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) => _silentRefresh());
   }
 
@@ -41,32 +41,50 @@ class _RoomsScreenState extends State<RoomsScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    // 1. Show cached rooms instantly.
+    final cached = await LocalDb.instance.loadRooms();
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() {
+        _rooms = cached;
+        _loading = false;
+      });
+    } else {
+      setState(() => _loading = true);
+    }
+
+    // 2. Refresh from the server and update the cache.
     final rooms = await _api.rooms();
     if (!mounted) return;
-    setState(() {
-      _rooms = rooms;
-      _loading = false;
-    });
+    if (rooms.isNotEmpty) {
+      setState(() {
+        _rooms = rooms;
+        _loading = false;
+      });
+      await LocalDb.instance.saveRooms(rooms);
+    } else {
+      setState(() => _loading = false);
+    }
   }
 
   Future<void> _silentRefresh() async {
     final rooms = await _api.rooms();
     if (!mounted) return;
-    setState(() => _rooms = rooms);
+    if (rooms.isNotEmpty) {
+      setState(() => _rooms = rooms);
+      await LocalDb.instance.saveRooms(rooms);
+    }
   }
 
   int get _totalUnread => _rooms.fold(0, (sum, r) => sum + r.unread);
 
   List<ChatRoom> get _filtered {
     var list = _rooms;
-    // Tab filter.
     if (_tab == 1) {
       list = list.where((r) => r.isDirect).toList();
     } else if (_tab == 2) {
       list = list.where((r) => !r.isDirect).toList();
     }
-    // Search filter.
     if (_query.isNotEmpty) {
       final q = _query.toLowerCase();
       list = list.where((r) => r.title.toLowerCase().contains(q)).toList();

@@ -7,6 +7,7 @@ import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/chat_socket.dart';
 import '../services/sound_service.dart';
+import '../services/local_db.dart';
 import '../theme/eo_theme.dart';
 import '../widgets/eo_avatar.dart';
 import '../widgets/message_bubble.dart';
@@ -50,15 +51,35 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _bootstrap() async {
+    // 1. Show cached messages instantly (no spinner if we have any).
+    final cached = await LocalDb.instance.loadMessages(widget.room.id);
+    if (!mounted) return;
+    if (cached.isNotEmpty) {
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(cached);
+        _loading = false;
+      });
+      _scrollToBottom(animated: false);
+    }
+
+    // 2. Fetch fresh from the server, replace, and update the cache.
     final history = await _api.messages(widget.room.id);
     if (!mounted) return;
-    setState(() {
-      _messages
-        ..clear()
-        ..addAll(history);
-      _loading = false;
-    });
-    _scrollToBottom(animated: false);
+    if (history.isNotEmpty) {
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(history);
+        _loading = false;
+      });
+      await LocalDb.instance.saveMessages(widget.room.id, history);
+      _scrollToBottom(animated: false);
+    } else {
+      setState(() => _loading = false);
+    }
+
     _openSocket();
     _startPolling();
   }
@@ -92,6 +113,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final hasFromOthers = incoming.any((m) => !m.isMine);
     if (incoming.isNotEmpty || reactionsChanged) {
       setState(() => _messages.addAll(incoming));
+      await LocalDb.instance.saveMessages(widget.room.id, _messages);
     }
     if (hasFromOthers) SoundService.instance.playReceived();
     if (incoming.isNotEmpty) _scrollToBottom();
@@ -149,6 +171,7 @@ class _ChatScreenState extends State<ChatScreen> {
         setState(() => _messages.add(msg));
         if (msg.sender != null) _typers.remove(msg.sender!.id);
         if (!msg.isMine) SoundService.instance.playReceived();
+        LocalDb.instance.saveMessages(widget.room.id, _messages);
         _scrollToBottom();
       }
     }
@@ -350,6 +373,7 @@ class _ChatScreenState extends State<ChatScreen> {
     final i2 = _messages.indexWhere((x) => x.id == m.id);
     if (i2 != -1 && updated.isNotEmpty) {
       setState(() => _messages[i2] = _withReactions(_messages[i2], updated));
+      await LocalDb.instance.saveMessages(widget.room.id, _messages);
     }
   }
 
@@ -415,7 +439,10 @@ class _ChatScreenState extends State<ChatScreen> {
                   final ok = await _api.deleteMessage(m.id);
                   if (ok && mounted) {
                     final idx = _messages.indexWhere((x) => x.id == m.id);
-                    if (idx != -1) setState(() => _messages.removeAt(idx));
+                    if (idx != -1) {
+                      setState(() => _messages.removeAt(idx));
+                      await LocalDb.instance.deleteMessage(m.id);
+                    }
                   }
                 },
               ),
