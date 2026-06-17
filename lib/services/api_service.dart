@@ -278,4 +278,57 @@ class ApiService {
       if (kDebugMode) debugPrint('device token register failed: $e');
     }
   }
+
+  // ── Tasks ───────────────────────────────────────────────────────────────────
+
+  Future<List<TaskItem>> myTasks() async {
+    final res = await _send('GET', 'tasks/');
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      final list = d['tasks'] ?? [];
+      return (list as List).map((e) => TaskItem.fromJson(e)).toList();
+    }
+    return [];
+  }
+
+  Future<List<TaskItem>> myRecentClosedTasks() async {
+    final res = await _send('GET', 'tasks/recent-closed/');
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      final list = d['tasks'] ?? [];
+      return (list as List).map((e) => TaskItem.fromJson(e)).toList();
+    }
+    return [];
+  }
+
+  Future<TaskItem?> taskDetail(String taskId) async {
+    final res = await _send('GET', 'tasks/$taskId/');
+    if (res.statusCode == 200) {
+      return TaskItem.fromJson(_decode(res));
+    }
+    return null;
+  }
+
+  Future<bool> taskOnSite(String taskId, {double? lat, double? lng, String note = ''}) async {
+    final res = await _send('POST', 'tasks/$taskId/on-site/', body: {
+      if (lat != null) 'gps_latitude': lat.toStringAsFixed(6),
+      if (lng != null) 'gps_longitude': lng.toStringAsFixed(6),
+      'note': note,
+    });
+    return res.statusCode == 200;
+  }
+
+  Future<bool> taskClearOnSite(String taskId) async {
+    final res = await _send('POST', 'tasks/$taskId/clear-on-site/', body: {});
+    return res.statusCode == 200;
+  }
+
+  /// Returns null on success, or an error message string on failure.
+  Future<String?> taskComplete(String taskId, String completionComment) async {
+    final res = await _send('POST', 'tasks/$taskId/complete/',
+        body: {'completion_comment': completionComment});
+    if (res.statusCode == 200) return null;
+    final d = _decode(res);
+    return d['error'] ?? 'Could not complete the task.';
+  }
 }

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-
 import '../models/models.dart';
 import '../services/api_service.dart';
 import '../services/app_state.dart';
@@ -11,6 +10,7 @@ import '../theme/eo_theme.dart';
 import '../widgets/eo_avatar.dart';
 import 'chat_screen.dart';
 import 'new_chat_screen.dart';
+import 'tasks_screen.dart';
 
 class RoomsScreen extends StatefulWidget {
   const RoomsScreen({super.key});
@@ -52,7 +52,6 @@ class _RoomsScreenState extends State<RoomsScreen> {
     } else {
       setState(() => _loading = true);
     }
-
     // 2. Refresh from the server and update the cache.
     final rooms = await _api.rooms();
     if (!mounted) return;
@@ -115,6 +114,16 @@ class _RoomsScreenState extends State<RoomsScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.task_alt_rounded),
+            tooltip: 'My tasks',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const TasksScreen()),
+              );
+            },
+          ),
           PopupMenuButton<String>(
             icon: EoAvatar(initials: me?.initials ?? '?', imageUrl: me?.avatarUrl ?? '', size: 36),
             onSelected: (v) {

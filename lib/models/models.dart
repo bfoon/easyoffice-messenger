@@ -244,3 +244,72 @@ class ChatRoom {
 
   bool get isDirect => roomType == 'direct';
 }
+
+class TaskItem {
+  final String id;
+  final String title;
+  final String description;
+  final String priority;
+  final String status;
+  final DateTime? dueDate;
+  final DateTime? completedAt;
+  final DateTime? onSiteAt;
+  final int progressPct;
+  final bool isOverdue;
+  final bool isCustomerFacing;
+  final bool awaitingCsVerification;
+  final bool customerVisible;
+  final UserMini? assignedBy;
+  final UserMini? assignedTo;
+  final UserMini? onSiteBy;
+  final String categoryName;
+
+  TaskItem({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.priority,
+    required this.status,
+    required this.dueDate,
+    required this.completedAt,
+    required this.onSiteAt,
+    required this.progressPct,
+    required this.isOverdue,
+    required this.isCustomerFacing,
+    required this.awaitingCsVerification,
+    required this.customerVisible,
+    required this.assignedBy,
+    required this.assignedTo,
+    required this.onSiteBy,
+    required this.categoryName,
+  });
+
+  bool get isOnSite => onSiteAt != null;
+  bool get isClosed => status == 'done' || status == 'cancelled';
+
+  factory TaskItem.fromJson(Map<String, dynamic> j) => TaskItem(
+        id: '${j['id']}',
+        title: j['title'] ?? '',
+        description: j['description'] ?? '',
+        priority: j['priority'] ?? 'medium',
+        status: j['status'] ?? 'todo',
+        dueDate: DateTime.tryParse('${j['due_date'] ?? ''}'),
+        completedAt: DateTime.tryParse('${j['completed_at'] ?? ''}'),
+        onSiteAt: DateTime.tryParse('${j['on_site_at'] ?? ''}'),
+        progressPct: j['progress_pct'] ?? 0,
+        isOverdue: j['is_overdue'] ?? false,
+        isCustomerFacing: j['is_customer_facing'] ?? false,
+        awaitingCsVerification: j['awaiting_cs_verification'] ?? false,
+        customerVisible: j['customer_visible'] ?? false,
+        assignedBy: j['assigned_by'] is Map<String, dynamic>
+            ? UserMini.fromJson(j['assigned_by'])
+            : null,
+        assignedTo: j['assigned_to'] is Map<String, dynamic>
+            ? UserMini.fromJson(j['assigned_to'])
+            : null,
+        onSiteBy: j['on_site_by'] is Map<String, dynamic>
+            ? UserMini.fromJson(j['on_site_by'])
+            : null,
+        categoryName: j['category_name'] ?? '',
+      );
+}
