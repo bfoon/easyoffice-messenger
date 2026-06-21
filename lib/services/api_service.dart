@@ -208,6 +208,20 @@ class ApiService {
     return res.statusCode == 200 || res.statusCode == 204;
   }
 
+  /// Edit a text message you sent. Returns true on success.
+  Future<bool> editMessage(String messageId, String newContent) async {
+    final res = await _send('PATCH', 'messages/$messageId/edit/',
+        body: {'content': newContent});
+    return res.statusCode == 200;
+  }
+
+  /// "Delete for me" — hide a message from your own view only. Others still
+  /// see it. Returns true on success.
+  Future<bool> hideMessage(String messageId) async {
+    final res = await _send('POST', 'messages/$messageId/hide/', body: {});
+    return res.statusCode == 200;
+  }
+
   Future<List<ReactionSummary>> toggleReaction(String messageId, String emoji) async {
     final res = await _send('POST', 'messages/$messageId/react/', body: {'emoji': emoji});
     if (res.statusCode == 200) {

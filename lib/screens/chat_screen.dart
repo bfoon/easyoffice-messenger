@@ -430,10 +430,38 @@ class _ChatScreenState extends State<ChatScreen> {
                 });
               },
             ),
+            if (m.isMine && m.messageType == 'text')
+              ListTile(
+                leading: const Icon(Icons.edit_outlined, color: EoColors.deepTeal),
+                title: const Text('Edit'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _editMessage(m);
+                },
+              ),
+            // Delete for me — available on any message.
+            ListTile(
+              leading: const Icon(Icons.visibility_off_outlined, color: EoColors.inkSoft),
+              title: const Text('Delete for me'),
+              onTap: () async {
+                Navigator.pop(context);
+                final ok = await _api.hideMessage(m.id);
+                if (ok && mounted) {
+                  final idx = _messages.indexWhere((x) => x.id == m.id);
+                  if (idx != -1) {
+                    setState(() => _messages.removeAt(idx));
+                    await LocalDb.instance.deleteMessage(m.id);
+                  }
+                } else {
+                  _toast('Could not delete.');
+                }
+              },
+            ),
+            // Delete for everyone — only your own messages.
             if (m.isMine)
               ListTile(
                 leading: const Icon(Icons.delete_outline, color: EoColors.coral),
-                title: const Text('Delete', style: TextStyle(color: EoColors.coral)),
+                title: const Text('Delete for everyone', style: TextStyle(color: EoColors.coral)),
                 onTap: () async {
                   Navigator.pop(context);
                   final ok = await _api.deleteMessage(m.id);
@@ -443,6 +471,8 @@ class _ChatScreenState extends State<ChatScreen> {
                       setState(() => _messages.removeAt(idx));
                       await LocalDb.instance.deleteMessage(m.id);
                     }
+                  } else {
+                    _toast('Could not delete.');
                   }
                 },
               ),
@@ -450,6 +480,69 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _editMessage(ChatMessage m) async {
+    final controller = TextEditingController(text: m.content);
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: EoColors.surface,
+        title: const Text('Edit message'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 1,
+          maxLines: 6,
+          decoration: InputDecoration(
+            fillColor: EoColors.sand,
+            filled: true,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: EoColors.inkSoft)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: EoColors.deepTeal,
+              foregroundColor: EoColors.onTeal,
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (newText == null || newText.isEmpty || newText == m.content) return;
+
+    // Optimistic update.
+    final idx = _messages.indexWhere((x) => x.id == m.id);
+    if (idx != -1) {
+      setState(() => _messages[idx] = ChatMessage(
+            id: m.id, roomId: m.roomId, sender: m.sender, content: newText,
+            messageType: m.messageType, fileUrl: m.fileUrl, fileName: m.fileName,
+            fileSize: m.fileSize, reactions: m.reactions, isDeleted: m.isDeleted,
+            isEdited: true, createdAt: m.createdAt, replyTo: m.replyTo,
+            poll: m.poll, isMine: m.isMine,
+          ));
+    }
+
+    final ok = await _api.editMessage(m.id, newText);
+    if (!mounted) return;
+    if (ok) {
+      await LocalDb.instance.saveMessages(widget.room.id, _messages);
+      _pollMessages();
+    } else {
+      _toast('Could not edit message.');
+      _pollMessages(); // re-sync to revert the optimistic change
+    }
   }
 
   void _scrollToBottom({bool animated = true}) {
