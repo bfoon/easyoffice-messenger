@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/models.dart';
 import 'api_service.dart';
 import 'local_db.dart';
+import 'push_service.dart';
 
 enum AuthStatus { unknown, loggedOut, loggedIn }
 
@@ -22,6 +23,7 @@ class AppState extends ChangeNotifier {
         me = u;
         status = AuthStatus.loggedIn;
         _startHeartbeat();
+        PushService.instance.init();
       } else {
         await _api.clearTokens();
         status = AuthStatus.loggedOut;
@@ -38,6 +40,7 @@ class AppState extends ChangeNotifier {
     me = await _api.me();
     status = AuthStatus.loggedIn;
     _startHeartbeat();
+    PushService.instance.init();
     notifyListeners();
     return null;
   }
