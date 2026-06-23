@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import '../models/models.dart';
+import '../models/files_models.dart';
 
 /// Thin client over the EasyOffice mobile_api. Handles JWT storage, attaching
 /// the Authorization header, and transparently refreshing an expired access
@@ -199,6 +200,107 @@ class ApiService {
       }
     }
     return streamed.statusCode == 200 || streamed.statusCode == 201;
+  }
+
+// This is a helper
+  Future<http.Response?> httpGetAbsolute(String absoluteUrl, Map<String, String> headers) async {
+    try {
+      return await http.get(Uri.parse(absoluteUrl), headers: headers);
+    } catch (e) {
+      if (kDebugMode) debugPrint('httpGetAbsolute failed: $e');
+      return null;
+    }
+  }
+
+
+    // ── Files ───────────────────────────────────────────────────────────────────
+ 
+  Future<List<RemoteFile>> files({String q = '', String category = '', String folder = ''}) async {
+    final params = <String>[];
+    if (q.isNotEmpty) params.add('q=${Uri.encodeQueryComponent(q)}');
+    if (category.isNotEmpty) params.add('category=${Uri.encodeQueryComponent(category)}');
+    if (folder.isNotEmpty) params.add('folder=${Uri.encodeQueryComponent(folder)}');
+    final qs = params.isEmpty ? '' : '?${params.join('&')}';
+ 
+    final res = await _send('GET', 'files/$qs');
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      final list = d['files'] ?? [];
+      return (list as List).map((e) => RemoteFile.fromJson(e)).toList();
+    }
+    return [];
+  }
+ 
+  Future<RemoteFile?> fileDetail(String fileId) async {
+    final res = await _send('GET', 'files/$fileId/');
+    if (res.statusCode == 200) {
+      return RemoteFile.fromJson(_decode(res));
+    }
+    return null;
+  }
+ 
+  // ── Signatures ───────────────────────────────────────────────────────────────
+ 
+  Future<List<SignRequest>> signRequests({bool openOnly = true}) async {
+    final res = await _send('GET', 'sign/requests/?status=${openOnly ? 'open' : 'all'}');
+    if (res.statusCode == 200) {
+      final d = _decode(res);
+      final list = d['requests'] ?? [];
+      return (list as List).map((e) => SignRequest.fromJson(e)).toList();
+    }
+    return [];
+  }
+ 
+  Future<SignDetail?> signDetail(String requestId) async {
+    final res = await _send('GET', 'sign/requests/$requestId/');
+    if (res.statusCode == 200) {
+      return SignDetail.fromJson(_decode(res));
+    }
+    return null;
+  }
+ 
+  /// Fill one field. Returns true on success.
+  Future<bool> signFillField(String requestId, String fieldId, String value) async {
+    final res = await _send('POST', 'sign/requests/$requestId/fields/$fieldId/',
+        body: {'value': value});
+    return res.statusCode == 200;
+  }
+ 
+  /// Final submit. Returns null on success, or an error message.
+  Future<String?> signSubmit(
+    String requestId, {
+    required String signatureData,
+    required String signatureType, // draw | type
+    bool saveSignature = false,
+    String saveSignatureName = 'My Signature',
+  }) async {
+    final res = await _send('POST', 'sign/requests/$requestId/submit/', body: {
+      'signature_data': signatureData,
+      'signature_type': signatureType,
+      'save_signature': saveSignature,
+      'save_signature_name': saveSignatureName,
+    });
+    if (res.statusCode == 200) return null;
+    final d = _decode(res);
+    return d['error'] ?? 'Could not submit signature.';
+  }
+ 
+  Future<String?> signDecline(String requestId, String reason) async {
+    final res = await _send('POST', 'sign/requests/$requestId/decline/',
+        body: {'reason': reason});
+    if (res.statusCode == 200) return null;
+    final d = _decode(res);
+    return d['error'] ?? 'Could not decline.';
+  }
+ 
+  /// The signing PDF needs the Authorization header. Returns the bytes, or null.
+  Future<List<int>?> fetchSignPdf(String previewUrl) async {
+    // previewUrl is an absolute URL returned by the server; fetch with auth.
+    final headers = <String, String>{};
+    if (accessToken != null) headers['Authorization'] = 'Bearer $accessToken';
+    final res = await httpGetAbsolute(previewUrl, headers);
+    if (res != null && res.statusCode == 200) return res.bodyBytes;
+    return null;
   }
 
   // ── Messages ────────────────────────────────────────────────────────────────
