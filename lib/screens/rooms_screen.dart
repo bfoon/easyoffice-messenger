@@ -11,6 +11,8 @@ import '../widgets/eo_avatar.dart';
 import 'chat_screen.dart';
 import 'new_chat_screen.dart';
 import 'tasks_screen.dart';
+import 'files_screen.dart';
+import 'sign_list_screen.dart';
 
 class RoomsScreen extends StatefulWidget {
   const RoomsScreen({super.key});
@@ -114,6 +116,26 @@ class _RoomsScreenState extends State<RoomsScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.folder_outlined),
+            tooltip: 'Files',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const FilesScreen()),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.draw_outlined),
+            tooltip: 'To sign',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SignListScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.task_alt_rounded),
             tooltip: 'My tasks',
