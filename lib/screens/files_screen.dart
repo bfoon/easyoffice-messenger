@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../models/files_models.dart';
 import '../services/api_service.dart';
@@ -23,6 +24,8 @@ class _FilesScreenState extends State<FilesScreen> {
 
   List<RemoteFile> _files = [];
   bool _loading = true;
+  bool _uploading = false;
+
   String _category = ''; // '', document, image, spreadsheet, presentation, pdf
 
   @override
@@ -33,12 +36,49 @@ class _FilesScreenState extends State<FilesScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final files = await _api.files(q: _searchCtl.text.trim(), category: _category);
+
+    final files = await _api.files(
+      q: _searchCtl.text.trim(),
+      category: _category,
+    );
+
     if (!mounted) return;
+
     setState(() {
       _files = files;
       _loading = false;
     });
+  }
+
+  Future<void> _pickAndUpload() async {
+    try {
+      final result = await FilePicker.platform.pickFiles();
+      final path = result?.files.single.path;
+
+      if (path == null) return;
+      if (!mounted) return;
+
+      setState(() => _uploading = true);
+
+      final id = await _api.uploadToFiles(path);
+
+      if (!mounted) return;
+
+      if (id != null && id.isNotEmpty) {
+        _toast('Uploaded to Files.');
+        await _load();
+      } else {
+        _toast('Upload failed.');
+      }
+    } catch (_) {
+      if (mounted) {
+        _toast('Could not pick file.');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _uploading = false);
+      }
+    }
   }
 
   Future<void> _open(RemoteFile f) async {
@@ -46,7 +86,9 @@ class _FilesScreenState extends State<FilesScreen> {
       _toast('File not available.');
       return;
     }
+
     final uri = Uri.parse(f.url);
+
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok) _toast('Could not open file.');
@@ -57,7 +99,9 @@ class _FilesScreenState extends State<FilesScreen> {
 
   void _toast(String m) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(m)),
+    );
   }
 
   @override
@@ -70,6 +114,24 @@ class _FilesScreenState extends State<FilesScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Files')),
+
+      floatingActionButton: FloatingActionButton.extended(
+        backgroundColor: EoColors.deepTeal,
+        foregroundColor: EoColors.onTeal,
+        onPressed: _uploading ? null : _pickAndUpload,
+        icon: _uploading
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
+            : const Icon(Icons.upload_file),
+        label: Text(_uploading ? 'Uploading…' : 'Upload'),
+      ),
+
       body: Column(
         children: [
           Padding(
@@ -90,6 +152,7 @@ class _FilesScreenState extends State<FilesScreen> {
               ),
             ),
           ),
+
           SizedBox(
             height: 44,
             child: ListView(
@@ -105,6 +168,7 @@ class _FilesScreenState extends State<FilesScreen> {
               ],
             ),
           ),
+
           Expanded(child: _list()),
         ],
       ),
@@ -113,6 +177,7 @@ class _FilesScreenState extends State<FilesScreen> {
 
   Widget _chip(String label, String value) {
     final selected = _category == value;
+
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: ChoiceChip(
@@ -123,20 +188,29 @@ class _FilesScreenState extends State<FilesScreen> {
           _load();
         },
         selectedColor: EoColors.deepTeal,
-        labelStyle: TextStyle(color: selected ? EoColors.onTeal : EoColors.ink),
+        labelStyle: TextStyle(
+          color: selected ? EoColors.onTeal : EoColors.ink,
+        ),
       ),
     );
   }
 
   Widget _list() {
     if (_loading) {
-      return const Center(child: CircularProgressIndicator(color: EoColors.deepTeal));
-    }
-    if (_files.isEmpty) {
       return const Center(
-        child: Text('No files found.', style: TextStyle(color: EoColors.inkSoft)),
+        child: CircularProgressIndicator(color: EoColors.deepTeal),
       );
     }
+
+    if (_files.isEmpty) {
+      return const Center(
+        child: Text(
+          'No files found.',
+          style: TextStyle(color: EoColors.inkSoft),
+        ),
+      );
+    }
+
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView.separated(
@@ -145,9 +219,14 @@ class _FilesScreenState extends State<FilesScreen> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (_, i) {
           final f = _files[i];
+
           return ListTile(
             leading: _fileIcon(f),
-            title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+            title: Text(
+              f.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             subtitle: Text(
               [
                 if (f.sizeDisplay.isNotEmpty) f.sizeDisplay,
@@ -156,9 +235,16 @@ class _FilesScreenState extends State<FilesScreen> {
               ].join(' · '),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: EoColors.inkSoft, fontSize: 12.5),
+              style: const TextStyle(
+                color: EoColors.inkSoft,
+                fontSize: 12.5,
+              ),
             ),
-            trailing: const Icon(Icons.open_in_new, size: 18, color: EoColors.inkSoft),
+            trailing: const Icon(
+              Icons.open_in_new,
+              size: 18,
+              color: EoColors.inkSoft,
+            ),
             onTap: () => _open(f),
           );
         },
@@ -169,6 +255,7 @@ class _FilesScreenState extends State<FilesScreen> {
   Widget _fileIcon(RemoteFile f) {
     IconData icon;
     Color color;
+
     if (f.isPdf) {
       icon = Icons.picture_as_pdf;
       color = const Color(0xFFef4444);
@@ -188,6 +275,7 @@ class _FilesScreenState extends State<FilesScreen> {
       icon = Icons.insert_drive_file;
       color = EoColors.inkSoft;
     }
+
     return CircleAvatar(
       backgroundColor: color.withValues(alpha: 0.12),
       child: Icon(icon, color: color),
