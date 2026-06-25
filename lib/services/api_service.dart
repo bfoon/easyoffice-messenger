@@ -308,6 +308,28 @@ class ApiService {
     }
   }
 
+/// Files → Messages: attach an existing Files-app file to a chat by id.
+  /// No bytes are uploaded — the server links the file. Returns true on success.
+  Future<bool> attachFileToRoom(String roomId, String fileId, {String caption = ''}) async {
+    final res = await _send('POST', 'rooms/$roomId/attach-file/', body: {
+      'file_id': fileId,
+      'caption': caption,
+    });
+    return res.statusCode == 200 || res.statusCode == 201;
+  }
+
+  /// Messages → Files: save a chat attachment into Files by message id.
+  /// No bytes are downloaded — the server copies. Returns the new file id, or null.
+  Future<String?> saveMessageToFiles(String roomId, String messageId, {String? folderId}) async {
+    final res = await _send('POST', 'rooms/$roomId/messages/$messageId/save-to-files/',
+        body: {if (folderId != null && folderId.isNotEmpty) 'folder': folderId});
+    if (res.statusCode == 200 || res.statusCode == 201) {
+      final d = _decode(res);
+      return '${d['file']?['id'] ?? ''}';
+    }
+    return null;
+  }
+
   // ── Files ───────────────────────────────────────────────────────────────────
 
   Future<List<RemoteFile>> files({

@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
+import '../models/files_models.dart';
 import '../services/api_service.dart';
 import '../services/chat_socket.dart';
 import '../services/sound_service.dart';
@@ -299,6 +300,14 @@ class _ChatScreenState extends State<ChatScreen> {
                 _pickFile();
               },
             ),
+            ListTile(
+              leading: const Icon(Icons.folder_shared_outlined, color: EoColors.deepTeal),
+              title: const Text('From Files app'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickFromFilesApp();
+              },
+            ),
           ],
         ),
       ),
@@ -337,6 +346,38 @@ class _ChatScreenState extends State<ChatScreen> {
       _pollMessages();
     } else {
       _toast('Upload failed.');
+    }
+  }
+
+  // ── Files app → message (attach by reference, no download) ──────────────────
+
+  Future<void> _pickFromFilesApp() async {
+    final files = await _api.files();
+    if (!mounted) return;
+    if (files.isEmpty) {
+      _toast('No files available.');
+      return;
+    }
+
+    final picked = await showModalBottomSheet<RemoteFile>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: EoColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      builder: (_) => _FilesAppPickerSheet(files: files),
+    );
+    if (picked == null || !mounted) return;
+
+    setState(() => _uploading = true);
+    final ok = await _api.attachFileToRoom(widget.room.id, picked.id);
+    if (!mounted) return;
+    setState(() => _uploading = false);
+    if (ok) {
+      _pollMessages();
+    } else {
+      _toast('Could not attach file.');
     }
   }
 
@@ -395,6 +436,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   void _showMessageActions(ChatMessage m) {
+    final isFileMsg = m.messageType == 'file' || m.messageType == 'image';
     showModalBottomSheet(
       context: context,
       backgroundColor: EoColors.surface,
@@ -430,6 +472,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 });
               },
             ),
+            // Save to Files — file / image messages only, no download.
+            if (isFileMsg)
+              ListTile(
+                leading: const Icon(Icons.drive_folder_upload_outlined, color: EoColors.deepTeal),
+                title: const Text('Save to Files'),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final id = await _api.saveMessageToFiles(widget.room.id, m.id);
+                  if (!mounted) return;
+                  _toast(id != null ? 'Saved to Files.' : 'Could not save.');
+                },
+              ),
             if (m.isMine && m.messageType == 'text')
               ListTile(
                 leading: const Icon(Icons.edit_outlined, color: EoColors.deepTeal),
@@ -746,6 +800,93 @@ class _ChatScreenState extends State<ChatScreen> {
                 ],
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Files-app picker sheet (Files → message attach) ──────────────────────────
+
+class _FilesAppPickerSheet extends StatefulWidget {
+  const _FilesAppPickerSheet({required this.files});
+  final List<RemoteFile> files;
+
+  @override
+  State<_FilesAppPickerSheet> createState() => _FilesAppPickerSheetState();
+}
+
+class _FilesAppPickerSheetState extends State<_FilesAppPickerSheet> {
+  String _q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _q.isEmpty
+        ? widget.files
+        : widget.files
+            .where((f) => f.name.toLowerCase().contains(_q.toLowerCase()))
+            .toList();
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  const Icon(Icons.folder_shared_outlined, color: EoColors.deepTeal),
+                  const SizedBox(width: 10),
+                  Text('Attach from Files', style: EoTheme.display(16, w: FontWeight.w700)),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: TextField(
+                onChanged: (v) => setState(() => _q = v),
+                decoration: InputDecoration(
+                  hintText: 'Search files',
+                  prefixIcon: const Icon(Icons.search),
+                  fillColor: EoColors.sand,
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(20),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: filtered.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, i) {
+                  final f = filtered[i];
+                  return ListTile(
+                    leading: Icon(
+                      f.isPdf
+                          ? Icons.picture_as_pdf
+                          : f.isImage
+                              ? Icons.image
+                              : Icons.insert_drive_file,
+                      color: EoColors.deepTeal,
+                    ),
+                    title: Text(f.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: Text(f.sizeDisplay,
+                        style: const TextStyle(color: EoColors.inkSoft, fontSize: 12)),
+                    onTap: () => Navigator.pop(context, f),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),
